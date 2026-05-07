@@ -1,0 +1,462 @@
+#include <iostream>
+#include <fstream>
+#include <cstring>
+#include <cctype>
+#include <iomanip>
+
+
+using namespace std;
+
+
+char M[100][4];  // Main Memory
+char IR[4];      // Instruction Register
+char R[4];       // General Purpose Register
+int IC;          // Instruction Counter
+bool C;          // Toggle flag
+char Buffer[100]; // Input Buffer 
+int m;           // Memory Pointer
+int SI;          // Service Interrupt
+
+
+void INIT();
+void LOAD(ifstream &infile, ofstream &outfile);
+void STARTEXECUTION(ifstream &infile, ofstream &outfile);
+void MOS(ifstream &infile, ofstream &outfile);
+void READ(ifstream &infile);
+void WRITE(ofstream &outfile);
+void TERMINATE(ofstream &outfile);
+void print_memory();
+
+
+int main()
+{
+   cout << "\n=================================================\n";
+   cout << "           MOS PHASE-I SIMULATOR STARTED         \n";
+   cout << "=================================================\n";
+
+
+   ifstream infile("input4.txt");
+   ofstream outfile("output.txt", ios::out);
+
+
+   if (!infile.is_open())
+   {
+       cerr << "ERROR: Cannot open input4.txt\n";
+       return 1;
+   }
+
+
+   if (!outfile.is_open())
+   {
+       cerr << "ERROR: Cannot create output.txt\n";
+       return 1;
+   }
+
+
+   while (true)
+   {
+       LOAD(infile, outfile);
+
+       if (!infile)
+           break;
+
+       STARTEXECUTION(infile, outfile);
+   }
+
+
+   print_memory();
+
+
+   cout << "\n=================================================\n";
+   cout << "         EXECUTION COMPLETED SUCCESSFULLY        \n";
+   cout << "=================================================\n";
+
+
+   infile.close();
+   outfile.close();
+
+
+   return 0;
+}
+
+
+// init function to basically reset everything 
+void INIT()
+{
+   cout << "\n[INIT] Resetting Memory and Registers...\n";
+
+
+   for (int i = 0; i < 4; i++)
+   {
+       IR[i] = '*';
+       R[i] = '*';
+   }
+
+
+   IC = 0;
+   C = false;
+   SI = 0;
+
+
+   for (int i = 0; i < 100; i++)
+   {
+       for (int j = 0; j < 4; j++)
+       {
+           M[i][j] = '*';
+       }
+   }
+}
+
+
+// load function to basically read the input file and load the program into memory
+void LOAD(ifstream &infile, ofstream &outfile)
+{
+   while (infile.getline(Buffer, sizeof(Buffer)))
+   {
+
+       int line_len = strlen(Buffer);
+       if (line_len > 0 && Buffer[line_len - 1] == '\r')
+           Buffer[line_len - 1] = '\0';
+
+
+       if (strncmp(Buffer, "$AMJ", 4) == 0)
+       {
+           cout << "\n[LOADER] New Job Started ($AMJ)\n";
+           INIT();
+           m = 0;
+       }
+
+
+       else if (strncmp(Buffer, "$DTA", 4) == 0)
+       {
+           cout << "[LOADER] Program Loading Complete ($DTA)\n";
+           break;
+       }
+
+
+       else if (strncmp(Buffer, "$END", 4) == 0)
+       {
+           cout << "[LOADER] End of Job ($END)\n";
+           continue;
+       }
+
+
+       else
+       {
+           cout << "[LOADER] Loading Program Card at Memory Block " << m << "\n";
+
+
+           int buffer_len = strlen(Buffer);
+           int buffer_index = 0;
+           int limit = m + 10;
+
+
+           while (m < limit && buffer_index < buffer_len && m < 100)
+           {
+               for (int j = 0; j < 4; j++)
+               {
+                   if (buffer_index < buffer_len)
+                       M[m][j] = Buffer[buffer_index++];
+                   else
+                       M[m][j] = '*';
+               }
+               m++;
+           }
+
+
+           if (m % 10 != 0)
+           {
+               m = ((m / 10) + 1) * 10;
+           }
+       }
+   }
+}
+
+
+// execution starts from here where the CPU fetches the instruction from memory, decodes it and executes it
+void STARTEXECUTION(ifstream &infile, ofstream &outfile)
+{
+   cout << "\n=================================================\n";
+   cout << "            USER PROGRAM EXECUTION START         \n";
+   cout << "=================================================\n";
+
+
+   IC = 0;
+
+
+   while (true)
+   {
+
+       if (IC < 0 || IC >= 100)
+       {
+           cerr << "ERROR: Instruction Counter out of bounds (IC=" << IC << ")\n";
+           break;
+       }
+
+
+       for (int i = 0; i < 4; i++)
+       {
+           IR[i] = M[IC][i];
+       }
+
+
+       cout << "\n[CPU] IC = "
+            << setw(2) << setfill('0') << IC
+            << " | IR = "
+            << IR[0] << IR[1] << IR[2] << IR[3] << "\n";
+
+
+       IC++;
+
+
+       char op1 = IR[0];
+       char op2 = IR[1];
+
+
+       if (op1 == 'G' && op2 == 'D')
+       {
+           SI = 1;
+           MOS(infile, outfile);
+       }
+
+
+       else if (op1 == 'P' && op2 == 'D')
+       {
+           SI = 2;
+           MOS(infile, outfile);
+       }
+
+
+       else if (op1 == 'H')
+       {
+           SI = 3;
+           MOS(infile, outfile);
+           break;
+       }
+
+
+       else
+       {
+           int operand = 0;
+
+
+           if (isdigit(IR[2]) && isdigit(IR[3]))
+           {
+               operand = (IR[2] - '0') * 10 + (IR[3] - '0');
+           }
+           else
+           {
+               cerr << "ERROR: Invalid Operand\n";
+               break;
+           }
+
+           if (operand < 0 || operand >= 100)
+           {
+               cerr << "ERROR: Operand out of bounds (" << operand << ")\n";
+               break;
+           }
+
+
+           if (op1 == 'L' && op2 == 'R')
+           {
+               cout << "[EXEC] LR " << operand << "\n";
+               for (int i = 0; i < 4; i++)
+                   R[i] = M[operand][i];
+           }
+
+
+           else if (op1 == 'S' && op2 == 'R')
+           {
+               cout << "[EXEC] SR " << operand << "\n";
+               for (int i = 0; i < 4; i++)
+                   M[operand][i] = R[i];
+           }
+
+
+           else if (op1 == 'C' && op2 == 'R')
+           {
+               cout << "[EXEC] CR " << operand << "\n";
+
+
+               C = true;
+
+
+               for (int i = 0; i < 4; i++)
+               {
+                   if (R[i] != M[operand][i])
+                   {
+                       C = false;
+                       break;
+                   }
+               }
+
+
+               cout << "[STATE] C = " << C << "\n";
+           }
+
+
+           else if (op1 == 'B' && op2 == 'T')
+           {
+               cout << "[EXEC] BT " << operand << "\n";
+
+
+               if (C)
+               {
+                   IC = operand;
+                   cout << "[STATE] Branch Taken -> IC = " << IC << "\n";
+               }
+           }
+
+
+           else
+           {
+               cerr << "ERROR: Invalid Opcode\n";
+               break;
+           }
+       }
+   }
+}
+
+
+// mos is used for calling functions related to the kernel mode like read, write and terminate
+void MOS(ifstream &infile, ofstream &outfile)
+{
+   switch (SI)
+   {
+   case 1:
+       READ(infile);
+       break;
+   case 2:
+       WRITE(outfile);
+       break;
+   case 3:
+       TERMINATE(outfile);
+       break;
+   }
+}
+
+
+// this reads the data card from the input file 
+// and loads it into memory at the location specified by the operand 
+//in the instruction register
+void READ(ifstream &infile)
+{
+   int operand = (IR[2] - '0') * 10 + (IR[3] - '0');
+
+
+   cout << "[MOS] READ -> Loading Data into Memory[" << operand
+        << "-" << operand + 9 << "]\n";
+
+
+   if (infile.getline(Buffer, sizeof(Buffer)))
+   {
+       int line_len = strlen(Buffer);
+       if (line_len > 0 && Buffer[line_len - 1] == '\r')
+           Buffer[line_len - 1] = '\0';
+
+       int len = strlen(Buffer);
+       int idx = 0;
+
+
+       for (int i = 0; i < 10; i++)
+       {
+           for (int j = 0; j < 4; j++)
+           {
+               if (idx < len)
+                   M[operand + i][j] = Buffer[idx++];
+               else
+                   M[operand + i][j] = '*';
+           }
+       }
+   }
+}
+
+
+// this writes the data from memory to the output file 
+// when the PD instruction is encountered
+void WRITE(ofstream &outfile)
+{
+   int operand = (IR[2] - '0') * 10 + (IR[3] - '0');
+
+
+   cout << "[MOS] WRITE -> Outputting Memory[" << operand
+        << "-" << operand + 9 << "]\n";
+
+
+   int idx = 0;
+
+
+   for (int i = 0; i < 10; i++)
+   {
+       for (int j = 0; j < 4; j++)
+       {
+           Buffer[idx++] = M[operand + i][j];
+       }
+   }
+
+   Buffer[40] = '\0';
+
+
+   for (int i = 0; i < 40; i++)
+   {
+       if (Buffer[i] != '*')
+           outfile << Buffer[i];
+   }
+
+
+   outfile << "\n";
+}
+
+
+// it terminates here 
+void TERMINATE(ofstream &outfile)
+{
+   cout << "[MOS] TERMINATE -> Job Finished\n";
+   outfile << "\n\n";
+}
+
+
+// here's the consolidated memory dump function to print the contents of main memory 
+// in a nice format at the end of execution
+void print_memory()
+{
+   cout << "\n\n";
+   cout << "===============================================================\n";
+   cout << "                     MAIN MEMORY DUMP                          \n";
+   cout << "===============================================================\n";
+
+
+   for (int row = 0; row < 10; row++)
+   {
+
+
+       cout << "+---------------------------------------------------------------------------------------------------+\n";
+
+
+       for (int col = 0; col < 10; col++)
+       {
+           int idx = row * 10 + col;
+
+
+           cout << "| "
+                << setw(2) << setfill('0') << idx
+                << ":";
+
+
+           for (int j = 0; j < 4; j++)
+           {
+               cout << M[idx][j];
+           }
+
+
+           cout << " ";
+       }
+
+
+       cout << "|\n";
+   }
+
+
+   cout << "+---------------------------------------------------------------------------------------------------+\n";
+}
+

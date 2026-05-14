@@ -1,0 +1,19 @@
+0010
+
+PROGRAM TERMINATED
+-----------------------------
+
+ABCD
+ABCD
+MATCH
+
+PROGRAM TERMINATED
+-----------------------------
+
+ABCD
+PQRS
+DO NOT
+
+PROGRAM TERMINATED
+-----------------------------
+
